@@ -1,8 +1,11 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
-  plugins: [react()],
+  // Tailwind v4 is a Vite plugin rather than a PostCSS step, and its config
+  // lives in CSS - there is no tailwind.config.js.
+  plugins: [react(), tailwindcss()],
   server: {
     port: 5173,
     // In development the UI runs on :5173 and the API on :8080. Proxying /api

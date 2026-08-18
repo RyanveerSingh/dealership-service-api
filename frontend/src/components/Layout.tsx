@@ -1,4 +1,4 @@
-import { NavLink, Outlet } from 'react-router-dom'
+import { Link, NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 
 export default function Layout() {
@@ -7,11 +7,13 @@ export default function Layout() {
   return (
     <>
       <header className="topbar">
-        <span className="brand">Dealership Service</span>
+        <Link to="/" className="brand" style={{ color: '#fff', textDecoration: 'none' }}>
+          Dealership Service
+        </Link>
         <nav>
-          <NavLink to="/bookings">Bookings</NavLink>
-          <NavLink to="/repair-orders">Repair Orders</NavLink>
-          <NavLink to="/inventory">Inventory</NavLink>
+          <NavLink to="/app/bookings">Bookings</NavLink>
+          <NavLink to="/app/repair-orders">Repair Orders</NavLink>
+          <NavLink to="/app/inventory">Inventory</NavLink>
         </nav>
         <span className="spacer" />
         <span className="who">

@@ -1,3 +1,13 @@
+/*
+ * Tailwind first, the console's own styles after.
+ *
+ * Tailwind's preflight unstyles buttons, headings and tables. The rules below
+ * are written at the same specificity, so importing Tailwind above them means
+ * the console keeps its appearance while the marketing page gets utilities.
+ * Reverse the order and every button in the app turns transparent.
+ */
+@import "tailwindcss";
+
 :root {
   --bg: #f4f5f7;
   --surface: #ffffff;
