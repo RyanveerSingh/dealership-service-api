@@ -72,6 +72,7 @@ local Compose setup, so a fresh clone runs with no environment at all.
 
 | Variable | Default | Notes |
 |---|---|---|
+| `PORT` | `8080` | Injected by Railway/Render; do not set manually |
 | `DB_URL` | `jdbc:mysql://localhost:3307/dms?...` | Use `mysql:3306` inside Compose |
 | `DB_USERNAME` | `dms` | |
 | `DB_PASSWORD` | `dmspass` | |
@@ -94,6 +95,18 @@ at startup rather than quietly issuing forgeable tokens.
 
 Only the `health` actuator endpoint is exposed. `env` and `configprops` would
 print the datasource password and the JWT secret to anyone who asked.
+
+---
+
+## Deployment
+
+[`DEPLOY.md`](DEPLOY.md) walks through hosting this for free, with no credit
+card: the app on Railway, MySQL on Aiven's always-free tier.
+
+The database is kept off Railway on purpose. Railway's permanent free plan
+allows $1/month of usage and one small always-on service costs about that, so
+running MySQL there as well would roughly double the bill and the deployment
+would stop once the 30-day trial credit expired.
 
 ---
 

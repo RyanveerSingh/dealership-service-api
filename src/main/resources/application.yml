@@ -1,9 +1,22 @@
 # Every externalised value below follows the ${ENV_VAR:default} form. The
 # defaults are the local Docker-Compose setup, so `./mvnw spring-boot:run` works
 # with no environment at all, while a deployed instance overrides each one.
+server:
+  # Railway, Render, Koyeb and Heroku all assign a port at runtime and inject it
+  # as $PORT. Binding to a hard-coded 8080 means the platform's health check
+  # never reaches the app and the deploy is killed as unhealthy.
+  port: ${PORT:8080}
+  shutdown: graceful
+
 spring:
   application:
     name: dealership-service-api
+
+  lifecycle:
+    # Finish in-flight requests before the JVM exits. Combined with the exec'd
+    # entrypoint (so the JVM is PID 1 and gets SIGTERM directly), a redeploy
+    # drains cleanly instead of severing open connections.
+    timeout-per-shutdown-phase: 25s
 
   datasource:
     # connectionTimeZone=UTC pairs with the TimeZone.setDefault(UTC) in

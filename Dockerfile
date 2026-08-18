@@ -58,8 +58,10 @@ ENV TZ=UTC
 ENV JAVA_OPTS="-XX:MaxRAMPercentage=75.0 -XX:+UseContainerSupport"
 
 # Compose and orchestrators use this to decide when the app is ready to serve.
+# Shell form, not exec form, so ${PORT} actually expands - PaaS platforms assign
+# the port at runtime and a hard-coded 8080 would report unhealthy forever.
 HEALTHCHECK --interval=15s --timeout=5s --start-period=60s --retries=5 \
-  CMD wget -qO- http://localhost:8080/actuator/health | grep -q '"status":"UP"' || exit 1
+  CMD wget -qO- http://localhost:${PORT:-8080}/actuator/health | grep -q '"status":"UP"' || exit 1
 
 # JarLauncher, not `java -jar`: the jar was expanded into layers above, so there
 # is no fat jar left to run. Note the package is org.springframework.boot.loader
