@@ -7,6 +7,7 @@ target/
 *.iml
 .mvn/wrapper/maven-wrapper.jar
 README.md
+DEPLOY.md
 HELP.md
 docker-compose*.yml
 Dockerfile
@@ -14,3 +15,10 @@ Dockerfile
 .gitignore
 .gitattributes
 *.log
+
+# Frontend build inputs and outputs. node_modules is large and platform-specific,
+# and both dist/ and the copied static/ are rebuilt inside the frontend stage -
+# shipping a stale local copy would silently override the freshly built bundle.
+frontend/node_modules/
+frontend/dist/
+src/main/resources/static/

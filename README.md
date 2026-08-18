@@ -20,17 +20,36 @@ that the schema — not just the application — refuses to hold invalid data.
 | Migrations | Flyway (`ddl-auto: validate` — Hibernate never writes DDL) |
 | Security | Spring Security 6 + JWT (jjwt 0.12.6), 4 roles |
 | Docs | springdoc-openapi 2.8.6 → `/swagger-ui.html` |
+| Frontend | React 19 + TypeScript, built with Vite |
 | Tests | JUnit 5, Mockito, AssertJ — 43 tests |
+
+The React bundle is compiled in a Node stage of the Dockerfile and copied into
+the jar's static resources, so the whole application ships as **one artifact on
+one origin**. That keeps it inside Railway's single-service free tier and means
+there is no CORS configuration to get wrong.
 
 ---
 
 ## Running it
 
-**Local development** — MySQL in Docker, app from the IDE or Maven:
+**Local development** — MySQL in Docker, backend from Maven, UI from Vite:
 
 ```bash
 docker compose up -d          # MySQL on :3307, wait for "healthy"
 ./mvnw spring-boot:run        # Flyway builds the schema on first boot
+
+cd frontend && npm install && npm run dev    # UI on :5173
+```
+
+Open **http://localhost:5173**. Vite proxies `/api` to port 8080, so the browser
+sees a single origin in development exactly as it does in production, and no
+CORS configuration is needed anywhere.
+
+To run the UI from Spring Boot instead of the Vite dev server, build it once:
+
+```bash
+cd frontend && npm run build
+cp -r dist/* ../src/main/resources/static/     # then restart the app
 ```
 
 **Everything in containers** — app image plus MySQL:
@@ -62,6 +81,33 @@ curl -X POST http://localhost:8080/api/auth/login \
 ```
 
 Then send `Authorization: Bearer <accessToken>` on everything else.
+
+---
+
+## The interface
+
+Three screens, each built to make a backend guarantee visible rather than to
+hide it:
+
+**Bookings** — book a bay, and try to book an overlapping slot. The 409 comes
+back as *"Bay 1 is already booked between …"*, rendered from the server's own
+error message. Booking a slot that starts exactly when another ends is accepted,
+which is the half-open interval working. The booking form is hidden entirely for
+a Technician, mirroring the `@PreAuthorize` rule — though the server still
+rejects the call regardless of what the UI chooses to show.
+
+**Repair Orders** — add a part and watch stock fall in the same action. Ask for
+more than exists and the UI reports the conflict, then re-reads inventory to show
+it is unchanged: the rollback, visible. The status buttons are rendered from
+`allowedNextStatuses` on the response, so the UI never offers a transition the
+state machine would reject. The rules live in one place, on the server.
+
+**Inventory** — stock levels with reorder warnings, and stock receipt that adds
+to the current quantity rather than overwriting it.
+
+Times are formatted by parsing the `LocalDateTime` string directly rather than
+via `new Date()`, which would apply the browser's timezone offset and reintroduce
+the shift the backend was fixed to avoid.
 
 ---
 

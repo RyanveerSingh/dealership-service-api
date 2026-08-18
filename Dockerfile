@@ -1,5 +1,20 @@
 # ============================================================
-# Stage 1 - build
+# Stage 1 - frontend
+# ============================================================
+FROM node:22-alpine AS frontend
+
+WORKDIR /fe
+
+# Same caching trick as the Maven stage below: lockfile first, so npm ci only
+# re-runs when dependencies actually change rather than on every source edit.
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+
+COPY frontend/ ./
+RUN npm run build
+
+# ============================================================
+# Stage 2 - backend build
 # ============================================================
 FROM maven:3.9-eclipse-temurin-17 AS build
 
@@ -12,6 +27,12 @@ COPY pom.xml .
 RUN mvn -B -ntp dependency:go-offline
 
 COPY src ./src
+
+# Drop the compiled bundle into Spring's static resources so it is packaged
+# inside the jar and served from the same origin as the API. One deployable
+# artifact, one URL, and therefore no CORS configuration to get wrong.
+COPY --from=frontend /fe/dist ./src/main/resources/static
+
 RUN mvn -B -ntp clean package -DskipTests
 
 # Split the fat jar into Spring Boot's four layers, ordered by how often they

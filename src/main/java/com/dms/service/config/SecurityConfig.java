@@ -50,7 +50,12 @@ public class SecurityConfig {
                         "/swagger-ui.html").permitAll()
                 // Coarse gate only. Fine-grained rules live on the methods via
                 // @PreAuthorize, next to the logic they protect.
-                .anyRequest().authenticated())
+                .requestMatchers("/api/**").authenticated()
+                // The React bundle and its client-side routes. These must be
+                // public: the login page itself is served from here, so gating
+                // it behind authentication would make signing in impossible.
+                // Everything sensitive lives under /api and is matched above.
+                .anyRequest().permitAll())
             .exceptionHandling(ex -> ex
                 .authenticationEntryPoint((req, res, e) ->
                         writeError(res, HttpServletResponse.SC_UNAUTHORIZED,
