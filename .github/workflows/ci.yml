@@ -96,6 +96,15 @@ jobs:
 
       - name: Smoke test the image
         run: |
+          set -u
+
+          # Dumps everything needed to diagnose a failure from the log alone.
+          dump() {
+            echo "::group::containers"; docker ps -a; echo "::endgroup::"
+            echo "::group::api logs";   docker logs api 2>&1 | tail -60 || true; echo "::endgroup::"
+            echo "::group::mysql logs"; docker logs mysql 2>&1 | tail -30 || true; echo "::endgroup::"
+          }
+
           docker network create dms-ci
 
           docker run -d --name mysql --network dms-ci \
@@ -105,13 +114,25 @@ jobs:
             -e MYSQL_PASSWORD=dmspass \
             mysql:8.4
 
+          # Wait for MySQL to accept a real login, not just to be running.
+          # The previous version fell through silently when this timed out, so
+          # the API then started against a database that was not there and the
+          # job burned three minutes polling a container that had already died.
           echo "Waiting for MySQL..."
-          for i in $(seq 1 60); do
-            if docker exec mysql mysqladmin ping -h localhost -prootpass --silent 2>/dev/null; then
-              echo "MySQL ready"; break
+          MYSQL_READY=no
+          for i in $(seq 1 90); do
+            if docker exec mysql mysqladmin ping -h localhost -prootpass --silent >/dev/null 2>&1; then
+              MYSQL_READY=yes
+              echo "MySQL ready after ~$((i*2))s"
+              break
             fi
             sleep 2
           done
+          if [ "$MYSQL_READY" != "yes" ]; then
+            echo "::error::MySQL never became ready"
+            dump
+            exit 1
+          fi
 
           docker run -d --name api --network dms-ci -p 8080:8080 \
             -e DB_URL='jdbc:mysql://mysql:3306/dms?useSSL=false&allowPublicKeyRetrieval=true&connectionTimeZone=UTC' \
@@ -120,19 +141,60 @@ jobs:
             dealership-service-api:${{ github.sha }}
 
           echo "Waiting for the API..."
-          for i in $(seq 1 60); do
-            if curl -fsS http://localhost:8080/actuator/health | grep -q '"status":"UP"'; then
-              echo "API is UP"
-              # Prove the container actually serves traffic, not just that it booted.
-              curl -fsS -X POST http://localhost:8080/api/auth/login \
-                -H 'Content-Type: application/json' \
-                -d '{"email":"advisor@dms.local","password":"password123"}' \
-                | grep -q accessToken && echo "login OK"
-              exit 0
+          API_UP=no
+          for i in $(seq 1 90); do
+            # Bail out immediately if the container has exited. Polling a dead
+            # container until the timeout tells you nothing and wastes minutes.
+            if [ "$(docker inspect -f '{{.State.Running}}' api 2>/dev/null)" != "true" ]; then
+              echo "::error::API container exited during startup"
+              dump
+              exit 1
+            fi
+            if curl -fsS http://localhost:8080/actuator/health 2>/dev/null | grep -q '"status":"UP"'; then
+              API_UP=yes
+              echo "API is UP after ~$((i*3))s"
+              break
             fi
             sleep 3
           done
+          if [ "$API_UP" != "yes" ]; then
+            echo "::error::API never became healthy"
+            dump
+            exit 1
+          fi
 
-          echo "API failed to become healthy"
-          docker logs api
-          exit 1
+          # Prove the container serves real traffic, not merely that it booted.
+          echo "Checking login..."
+          if curl -fsS -X POST http://localhost:8080/api/auth/login \
+               -H 'Content-Type: application/json' \
+               -d '{"email":"advisor@dms.local","password":"password123"}' \
+               | grep -q accessToken; then
+            echo "login OK"
+          else
+            echo "::error::login failed against the built image"
+            dump
+            exit 1
+          fi
+
+          # And that the double-booking guard survives into the image.
+          echo "Checking the booking conflict guard..."
+          TOKEN=$(curl -fsS -X POST http://localhost:8080/api/auth/login \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"advisor@dms.local","password":"password123"}' \
+            | sed -n 's/.*"accessToken":"\([^"]*\)".*/\1/p')
+
+          BOOK='{"vehicleId":1,"bayId":1,"scheduledStart":"2030-04-01T09:00:00","scheduledEnd":"2030-04-01T10:00:00"}'
+          CLASH='{"vehicleId":1,"bayId":1,"scheduledStart":"2030-04-01T09:30:00","scheduledEnd":"2030-04-01T10:30:00"}'
+
+          FIRST=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:8080/api/appointments \
+            -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d "$BOOK")
+          SECOND=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:8080/api/appointments \
+            -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d "$CLASH")
+
+          echo "first booking: $FIRST   overlapping booking: $SECOND"
+          if [ "$FIRST" != "201" ] || [ "$SECOND" != "409" ]; then
+            echo "::error::expected 201 then 409, got $FIRST then $SECOND"
+            dump
+            exit 1
+          fi
+          echo "double-booking guard OK"
