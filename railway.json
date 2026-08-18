@@ -6,7 +6,8 @@
   },
   "deploy": {
     "healthcheckPath": "/actuator/health",
-    "healthcheckTimeout": 120,
+    "//healthcheckTimeout": "First boot runs Flyway against a remote database over the network, which is far slower than the ~12s local start. 120s was not enough headroom.",
+    "healthcheckTimeout": 300,
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 3,
     "numReplicas": 1
