@@ -1,0 +1,138 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    name: Build and test
+    runs-on: ubuntu-latest
+
+    services:
+      # The @SpringBootTest context test boots the real application, which runs
+      # Flyway and validates every entity mapping against the actual schema.
+      # That is worth far more than mocking the database away, so CI runs a real
+      # MySQL and the suite fails if a migration and an entity ever disagree.
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: rootpass
+          MYSQL_DATABASE: dms
+          MYSQL_USER: dms
+          MYSQL_PASSWORD: dmspass
+        ports:
+          # Host 3307 matches the default DB_URL, so no override is needed.
+          - 3307:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -prootpass"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          # Caches ~/.m2 keyed on pom.xml.
+          cache: 'maven'
+
+      - name: Build and test
+        run: ./mvnw -B -ntp verify
+        env:
+          # CI runners are UTC already, but stating it means a runner change can
+          # never silently reintroduce the LocalDateTime shift that stored a
+          # 14:00 booking as 08:30.
+          TZ: UTC
+
+      - name: Publish test report
+        # Runs even when tests fail - that is exactly when the report matters.
+        if: always()
+        uses: mikepenz/action-junit-report@v4
+        with:
+          report_paths: '**/target/surefire-reports/TEST-*.xml'
+          detailed_summary: true
+
+      - name: Upload JAR
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dealership-service-api
+          path: target/*.jar
+          retention-days: 7
+
+  docker:
+    name: Docker image builds
+    runs-on: ubuntu-latest
+    # Only worth building the image once the code is known good.
+    needs: build-and-test
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          # Not pushed: no registry credentials are configured yet. This job
+          # exists so a broken Dockerfile fails here rather than at deploy time.
+          push: false
+          load: true
+          tags: dealership-service-api:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test the image
+        run: |
+          docker network create dms-ci
+
+          docker run -d --name mysql --network dms-ci \
+            -e MYSQL_ROOT_PASSWORD=rootpass \
+            -e MYSQL_DATABASE=dms \
+            -e MYSQL_USER=dms \
+            -e MYSQL_PASSWORD=dmspass \
+            mysql:8.4
+
+          echo "Waiting for MySQL..."
+          for i in $(seq 1 60); do
+            if docker exec mysql mysqladmin ping -h localhost -prootpass --silent 2>/dev/null; then
+              echo "MySQL ready"; break
+            fi
+            sleep 2
+          done
+
+          docker run -d --name api --network dms-ci -p 8080:8080 \
+            -e DB_URL='jdbc:mysql://mysql:3306/dms?useSSL=false&allowPublicKeyRetrieval=true&connectionTimeZone=UTC' \
+            -e DB_USERNAME=dms \
+            -e DB_PASSWORD=dmspass \
+            dealership-service-api:${{ github.sha }}
+
+          echo "Waiting for the API..."
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8080/actuator/health | grep -q '"status":"UP"'; then
+              echo "API is UP"
+              # Prove the container actually serves traffic, not just that it booted.
+              curl -fsS -X POST http://localhost:8080/api/auth/login \
+                -H 'Content-Type: application/json' \
+                -d '{"email":"advisor@dms.local","password":"password123"}' \
+                | grep -q accessToken && echo "login OK"
+              exit 0
+            fi
+            sleep 3
+          done
+
+          echo "API failed to become healthy"
+          docker logs api
+          exit 1

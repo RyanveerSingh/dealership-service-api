@@ -26,10 +26,22 @@ that the schema — not just the application — refuses to hold invalid data.
 
 ## Running it
 
+**Local development** — MySQL in Docker, app from the IDE or Maven:
+
 ```bash
 docker compose up -d          # MySQL on :3307, wait for "healthy"
 ./mvnw spring-boot:run        # Flyway builds the schema on first boot
 ```
+
+**Everything in containers** — app image plus MySQL:
+
+```bash
+docker compose --profile full up -d --build
+```
+
+The `full` profile is opt-in so the plain `docker compose up -d` above still
+starts only the database, which is what you want when running the app from an
+IDE debugger.
 
 ```bash
 curl http://localhost:8080/actuator/health      # {"status":"UP"}
@@ -50,6 +62,53 @@ curl -X POST http://localhost:8080/api/auth/login \
 ```
 
 Then send `Authorization: Bearer <accessToken>` on everything else.
+
+---
+
+## Configuration
+
+Nothing environment-specific is hard-coded. Every value below defaults to the
+local Compose setup, so a fresh clone runs with no environment at all.
+
+| Variable | Default | Notes |
+|---|---|---|
+| `DB_URL` | `jdbc:mysql://localhost:3307/dms?...` | Use `mysql:3306` inside Compose |
+| `DB_USERNAME` | `dms` | |
+| `DB_PASSWORD` | `dmspass` | |
+| `DB_POOL_SIZE` | `10` | Hikari max pool |
+| `JWT_SECRET` | dev value | **Must be overridden when deployed** |
+| `JWT_TTL_MINUTES` | `60` | Access-token lifetime |
+| `TAX_RATE` | `0.18` | |
+| `LOG_SQL_LEVEL` | `INFO` | `DEBUG` prints every statement |
+
+The committed `JWT_SECRET` default decodes to the literal string
+`fake-dev-secret-change-me-before-deploy-256`. It is in the repo on purpose so a
+clone runs immediately, and it protects nothing. Generate a real one with:
+
+```bash
+openssl rand -base64 48
+```
+
+`Keys.hmacShaKeyFor` rejects anything under 256 bits, so a too-short secret fails
+at startup rather than quietly issuing forgeable tokens.
+
+Only the `health` actuator endpoint is exposed. `env` and `configprops` would
+print the datasource password and the JWT secret to anyone who asked.
+
+---
+
+## CI
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push and PR:
+
+1. **Build and test** against a real MySQL 8.4 service container. The
+   `@SpringBootTest` case boots the whole application, so Flyway runs and
+   `ddl-auto: validate` checks every entity against the real schema — CI fails if
+   a migration and an entity ever drift apart. Mocking the database away would
+   lose exactly that signal.
+2. **Docker image build**, then a smoke test that starts the image against MySQL,
+   waits for `/actuator/health`, and performs a real login. That proves the
+   container serves traffic, not merely that it boots.
 
 ---
 

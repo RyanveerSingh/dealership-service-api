@@ -17,5 +17,33 @@ services:
       timeout: 5s
       retries: 20
 
+  # Behind the "full" profile so the default `docker compose up -d` still starts
+  # only MySQL, which is what you want when running the app from the IDE.
+  #
+  #   docker compose up -d                  -> MySQL only (local development)
+  #   docker compose --profile full up -d   -> MySQL + the API in containers
+  api:
+    build: .
+    container_name: dms-api
+    profiles: ["full"]
+    depends_on:
+      mysql:
+        # Waits for the healthcheck above, not merely for the container to
+        # start. MySQL accepts TCP well before it will accept a login, so
+        # without this Flyway races the database and the app dies on boot.
+        condition: service_healthy
+    environment:
+      # 3306, not 3307: inside the compose network containers talk on the
+      # service's own port. 3307 is only the host-side mapping.
+      DB_URL: jdbc:mysql://mysql:3306/dms?useSSL=false&allowPublicKeyRetrieval=true&connectionTimeZone=UTC
+      DB_USERNAME: dms
+      DB_PASSWORD: dmspass
+      # Overridable from the host; the fallback is the throwaway dev value.
+      JWT_SECRET: ${JWT_SECRET:-ZmFrZS1kZXYtc2VjcmV0LWNoYW5nZS1tZS1iZWZvcmUtZGVwbG95LTI1Ng==}
+      TZ: UTC
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
 volumes:
   dms-data:

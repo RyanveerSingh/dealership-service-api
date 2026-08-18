@@ -1,0 +1,16 @@
+# Keep the build context small and avoid invalidating layer caches on files the
+# image never needs.
+target/
+.git/
+.github/
+.idea/
+*.iml
+.mvn/wrapper/maven-wrapper.jar
+README.md
+HELP.md
+docker-compose*.yml
+Dockerfile
+.dockerignore
+.gitignore
+.gitattributes
+*.log

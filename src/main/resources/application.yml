@@ -1,3 +1,6 @@
+# Every externalised value below follows the ${ENV_VAR:default} form. The
+# defaults are the local Docker-Compose setup, so `./mvnw spring-boot:run` works
+# with no environment at all, while a deployed instance overrides each one.
 spring:
   application:
     name: dealership-service-api
@@ -7,12 +10,12 @@ spring:
     # DealershipServiceApiApplication. JVM zone, connection zone and the MySQL
     # container all being UTC is what stops the driver from shifting
     # LocalDateTime values on the way into the DATETIME columns.
-    url: jdbc:mysql://localhost:3307/dms?useSSL=false&allowPublicKeyRetrieval=true&connectionTimeZone=UTC
-    username: dms
-    password: dmspass
+    url: ${DB_URL:jdbc:mysql://localhost:3307/dms?useSSL=false&allowPublicKeyRetrieval=true&connectionTimeZone=UTC}
+    username: ${DB_USERNAME:dms}
+    password: ${DB_PASSWORD:dmspass}
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
-      maximum-pool-size: 10
+      maximum-pool-size: ${DB_POOL_SIZE:10}
 
   jpa:
     hibernate:
@@ -36,12 +39,34 @@ spring:
 
 app:
   jwt:
-    # dev-only secret; move to an env var before any deploy
-    secret: ZmFrZS1kZXYtc2VjcmV0LWNoYW5nZS1tZS1iZWZvcmUtZGVwbG95LTI1Ng==
-    access-token-minutes: 60
+    # DEV DEFAULT ONLY. It is committed deliberately so a fresh clone runs, and
+    # it decodes to the literal text "fake-dev-secret-change-me-before-deploy-256"
+    # - it protects nothing.
+    #
+    # Any deployed instance MUST set JWT_SECRET to a real base64-encoded value of
+    # at least 256 bits, e.g.
+    #     openssl rand -base64 48
+    # Keys.hmacShaKeyFor rejects anything shorter, so a weak value fails fast at
+    # startup rather than silently issuing forgeable tokens.
+    secret: ${JWT_SECRET:ZmFrZS1kZXYtc2VjcmV0LWNoYW5nZS1tZS1iZWZvcmUtZGVwbG95LTI1Ng==}
+    access-token-minutes: ${JWT_TTL_MINUTES:60}
   billing:
     # 18% GST, applied to parts + labour when an RO is repriced.
-    tax-rate: 0.18
+    tax-rate: ${TAX_RATE:0.18}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # health only. Never expose env or configprops publicly: they would
+        # print the datasource password and the JWT secret.
+        include: health
+  endpoint:
+    health:
+      # Docker and the load balancer probe these; they must not require auth.
+      probes:
+        enabled: true
+      show-details: never
 
 springdoc:
   swagger-ui:
@@ -49,5 +74,5 @@ springdoc:
 
 logging:
   level:
-    org.hibernate.SQL: INFO
+    org.hibernate.SQL: ${LOG_SQL_LEVEL:INFO}
     org.springframework.security: INFO
