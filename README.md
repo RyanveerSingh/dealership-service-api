@@ -1,0 +1,224 @@
+# Dealership Service Management API
+
+A service-lane backend for a car dealership: customers bring vehicles in, an
+advisor books a bay, a technician opens a repair order, parts come off the shelf,
+and the order is priced and closed.
+
+The interesting part is not the CRUD. It is that **two different concurrency
+problems appear in the same application and need two different solutions**, and
+that the schema — not just the application — refuses to hold invalid data.
+
+---
+
+## Stack
+
+| | |
+|---|---|
+| Java | 17 (Temurin) |
+| Spring Boot | 3.5.3 |
+| Database | MySQL 8.4 in Docker, port **3307** |
+| Migrations | Flyway (`ddl-auto: validate` — Hibernate never writes DDL) |
+| Security | Spring Security 6 + JWT (jjwt 0.12.6), 4 roles |
+| Docs | springdoc-openapi 2.8.6 → `/swagger-ui.html` |
+| Tests | JUnit 5, Mockito, AssertJ — 43 tests |
+
+---
+
+## Running it
+
+```bash
+docker compose up -d          # MySQL on :3307, wait for "healthy"
+./mvnw spring-boot:run        # Flyway builds the schema on first boot
+```
+
+```bash
+curl http://localhost:8080/actuator/health      # {"status":"UP"}
+```
+
+Dev logins (all `password123`):
+
+| Email | Role |
+|---|---|
+| `admin@dms.local` | ADMIN |
+| `advisor@dms.local` | SERVICE_ADVISOR |
+| `tech@dms.local` | TECHNICIAN |
+
+```bash
+curl -X POST http://localhost:8080/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"advisor@dms.local","password":"password123"}'
+```
+
+Then send `Authorization: Bearer <accessToken>` on everything else.
+
+---
+
+## The two concurrency mechanisms
+
+This is the part worth understanding, and the reason both exist.
+
+### Service bays — pessimistic (`SELECT ... FOR UPDATE`)
+
+Booking runs three steps **in this order**, inside one transaction
+([`AppointmentService#book`](src/main/java/com/dms/service/service/AppointmentService.java)):
+
+1. `SELECT ... FOR UPDATE` on the bay row
+2. range-overlap query against `appointments`
+3. `INSERT` the appointment
+
+Step 1 must come first. Two advisors booking the same bay both reach step 1, but
+only one holds the lock; the loser blocks until the winner commits and then sees
+the winner's row in its own step 2. Reverse steps 1 and 2 and both read "free"
+before either inserts — classic write-skew, two cars in one bay.
+
+**`@Version` cannot solve this.** Optimistic locking detects concurrent edits to
+a row you already read. Here nobody edits the bay at all; the hazard is an
+appointment row that *did not exist* when you looked. That is a phantom, and
+serialising on the parent row is what removes it.
+
+There is also no fallback: **MySQL cannot express "no overlapping ranges" as a
+constraint**, so unlike stock levels, the database cannot catch this if the
+application gets it wrong. The lock is doing real work.
+
+The call ordering is pinned by a test
+([`AppointmentServiceTest#locksBayBeforeCheckingOverlap`](src/test/java/com/dms/service/service/AppointmentServiceTest.java)),
+so a refactor that reorders those lines fails the build instead of silently
+reintroducing the race.
+
+### Parts inventory — optimistic (`@Version`)
+
+Two advisors consuming the same SKU at the same instant is *rare*, so locking
+every inventory read would cost more than it saves. `parts.version` is checked on
+write; the loser gets `OptimisticLockingFailureException` and `@Retryable`
+re-runs the whole method — outside the transaction, so each attempt re-reads the
+row.
+
+Adding a part line also draws stock down **in the same transaction as the line
+insert**. If stock is short, the exception rolls both back, so inventory is never
+reduced for a line that was never recorded.
+
+> **The one-sentence answer:** pessimistic where conflict is likely and the check
+> is a range query vulnerable to phantoms; optimistic where conflict is rare and
+> the check is a single row.
+
+---
+
+## Constraints live in the database
+
+`ddl-auto: validate` means Hibernate checks the entities against the schema and
+refuses to start if they disagree — it never creates or alters anything. The
+schema is versioned SQL in git.
+
+Rules the database enforces regardless of application bugs:
+
+- `ck_li_partref` — a `PART` line must reference a part; a `LABOR` line must not
+- `ck_parts_stock` — stock can never go negative
+- `ck_appt_window` — an appointment must end after it starts
+- `uq_ro_appointment` — at most one repair order per appointment
+
+---
+
+## State machines
+
+Both `AppointmentStatus` and `RepairOrderStatus` carry their own legal edges, so
+the rules live in one readable place rather than scattered across service
+methods. Illegal transitions are rejected with **409**, never silently applied.
+
+```
+Appointment:  SCHEDULED → CHECKED_IN → IN_PROGRESS → COMPLETED
+              (any live state) → CANCELLED
+
+RepairOrder:  OPEN → AWAITING_PARTS / IN_PROGRESS
+              IN_PROGRESS → AWAITING_APPROVAL / CLOSED
+              (any live state) → VOIDED
+              CLOSED and VOIDED are terminal
+```
+
+`GET /api/repair-orders/{id}` publishes `allowedNextStatuses`, so a UI can grey
+out buttons instead of discovering the rule via a 409.
+
+---
+
+## API
+
+| Method | Path | Role |
+|---|---|---|
+| POST | `/api/auth/login` | public |
+| GET | `/api/auth/me` | any |
+| POST | `/api/appointments` | ADVISOR, ADMIN |
+| PUT | `/api/appointments/{id}/schedule` | ADVISOR, ADMIN |
+| PATCH | `/api/appointments/{id}/status` | ADVISOR, ADMIN, TECH |
+| POST | `/api/repair-orders` | ADVISOR, ADMIN |
+| POST | `/api/repair-orders/{id}/line-items` | ADVISOR, ADMIN, TECH |
+| DELETE | `/api/repair-orders/{id}/line-items/{lineId}` | ADVISOR, ADMIN |
+| PATCH | `/api/repair-orders/{id}/status` | ADVISOR, ADMIN, TECH |
+
+Every error — including the 401/403 produced by security filters, which never
+reach `@RestControllerAdvice` — uses one JSON shape:
+
+```json
+{
+  "timestamp": "2026-08-18T04:18:42Z",
+  "status": 409,
+  "error": "Insufficient Stock",
+  "message": "Insufficient stock for BRK-PAD-FRT: requested 5, available 2",
+  "path": "/api/repair-orders/1/line-items"
+}
+```
+
+---
+
+## Tests
+
+```bash
+./mvnw test        # 43 tests
+```
+
+Notable ones: the lock-ordering test above; the rollback test proving stock is
+unchanged after an insufficient-stock failure; and a test that a client-supplied
+`unitPrice` on a `PART` line is ignored in favour of the inventory price, so a
+caller cannot invoice itself brake pads at one rupee.
+
+---
+
+## Notes on the build
+
+Three things differ from the original day-one plan, each forced by reality rather
+than preference:
+
+- **Java 17, not 21.** Boot 3.5 requires 17+; nothing in the design depends on 21.
+- **Boot 3.5.3, not 3.4.2.** Spring Initializr has retired every 3.x release and
+  now offers only Boot 4.x, which is Spring Framework 7 + Security 7 with
+  breaking configuration changes. 3.5.3 is the newest 3.x and keeps springdoc 2.x
+  and Security 6 working as designed.
+- **`V3__fix_seed_password_hashes.sql`.** The hash shipped in `V2` was labelled
+  BCrypt for `password123` but does not verify against it, so every seeded account
+  returned 401. Fixed forward rather than by editing `V2`, because Flyway
+  checksums applied migrations and an in-place edit breaks validation on any
+  database that already ran it.
+
+### The timezone trap
+
+`DealershipServiceApiApplication` pins the JVM to UTC in a static block. This is
+not decoration — it fixes a real bug found by reading the SQL MySQL actually
+received.
+
+`scheduled_start` is `DATETIME`: wall-clock time at the dealership, no zone. But
+the JDBC driver converts `LocalDateTime` between the JVM zone and the connection
+zone, so on an IST machine a **14:00 booking was written to the column as 08:30**.
+It read back as 14:00, so the API looked correct and every test passed — while the
+stored row said something else entirely. Any report, BI query, or second consumer
+reading that table would have got the wrong answer.
+
+The shift was the JVM's offset, so the same request on a UTC server would have
+stored 14:00 instead: the meaning of a row depended on which machine wrote it.
+That is the kind of thing that silently corrupts data after a deploy to a
+UTC-based EC2 host.
+
+Pinning the JVM to UTC makes JVM zone, connection zone, and the MySQL container
+all agree, so `LocalDateTime` passes through untouched while `Instant`-mapped
+`TIMESTAMP` columns stay in true UTC. Verified both ways: `scheduled_start` stores
+`14:00:00`, and `created_at` matches `UTC_TIMESTAMP()`.
+
+Setting it in code rather than via `-Duser.timezone` means it holds however the
+app is launched — `mvn spring-boot:run`, `java -jar`, or a container with no `TZ`.

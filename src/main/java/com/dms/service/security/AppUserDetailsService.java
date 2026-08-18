@@ -1,0 +1,27 @@
+package com.dms.service.security;
+
+import com.dms.service.repository.UserRepository;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+public class AppUserDetailsService implements UserDetailsService {
+
+    private final UserRepository userRepository;
+
+    public AppUserDetailsService(UserRepository userRepository) {
+        this.userRepository = userRepository;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
+        return userRepository.findByEmail(email)
+                .map(AppUserPrincipal::new)
+                // Deliberately does not reveal whether the address exists.
+                .orElseThrow(() -> new UsernameNotFoundException("Bad credentials"));
+    }
+}
