@@ -112,18 +112,20 @@ export default function Hero() {
           transition={{ duration: 0.7, delay: 0.28 }}
           className="mt-10 flex flex-wrap items-center justify-center gap-3"
         >
+          {/* Primary action keeps the visitor on the page and sends them into
+              the car, which is the thing worth seeing. */}
+          <a
+            href="#teardown"
+            className="rounded-lg bg-amber-400 px-6 py-3 text-sm font-semibold text-[#0a0d12] transition hover:bg-amber-300"
+          >
+            See it come apart
+          </a>
           <Link
             to="/app/bookings"
-            className="rounded-lg bg-amber-400 px-6 py-3 text-sm font-semibold text-[#0a0d12] transition hover:bg-amber-300"
+            className="rounded-lg border border-white/15 px-6 py-3 text-sm font-semibold text-zinc-200 transition hover:border-white/35 hover:bg-white/5"
           >
             Open the console
           </Link>
-          <a
-            href="/swagger-ui.html"
-            className="rounded-lg border border-white/15 px-6 py-3 text-sm font-semibold text-zinc-200 transition hover:border-white/35 hover:bg-white/5"
-          >
-            Browse the API
-          </a>
         </motion.div>
       </motion.div>
 

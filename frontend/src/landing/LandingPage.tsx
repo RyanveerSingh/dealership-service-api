@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import { motion, useReducedMotion } from 'motion/react'
 import Hero from './Hero'
-import ExplodedView from './ExplodedView'
+import CarStage from './CarStage'
 import Features from './Features'
 import Workflow from './Workflow'
 
@@ -86,19 +86,35 @@ export default function LandingPage() {
   return (
     <div className="min-h-screen bg-[#0a0d12] antialiased">
       <Hero />
-      <ExplodedView />
+      <div id="teardown">
+        <CarStage />
+      </div>
       <Features />
       <Workflow />
       <Stats />
       <Closing />
       <footer className="border-t border-white/10 bg-[#080b0f] py-10">
-        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-6 text-xs text-zinc-500 sm:flex-row">
-          <span>Dealership Service Management · Spring Boot 3.5 · React 19</span>
-          <div className="flex gap-5">
-            <a href="/swagger-ui.html" className="transition hover:text-amber-300">API docs</a>
-            <a href="/actuator/health" className="transition hover:text-amber-300">Health</a>
-            <Link to="/app/bookings" className="transition hover:text-amber-300">Console</Link>
+        <div className="mx-auto flex max-w-6xl flex-col gap-5 px-6 text-xs text-zinc-500">
+          <div className="flex flex-col items-center justify-between gap-4 sm:flex-row">
+            <span>Dealership Service Management · Spring Boot 3.5 · React 19</span>
+            <div className="flex gap-5">
+              <a href="/swagger-ui.html" className="transition hover:text-amber-300">API docs</a>
+              <a href="/actuator/health" className="transition hover:text-amber-300">Health</a>
+              <Link to="/app/bookings" className="transition hover:text-amber-300">Console</Link>
+            </div>
           </div>
+          {/* Required by the model's licence, not decoration. */}
+          <p className="border-t border-white/5 pt-4 text-[11px] text-zinc-600">
+            3D model: Ferrari 458 Italia by{' '}
+            <a
+              href="https://sketchfab.com/models/57bf6cc56931426e87494f554df1dab6"
+              target="_blank" rel="noreferrer"
+              className="underline underline-offset-2 transition hover:text-zinc-400"
+            >
+              vicent091036
+            </a>
+            , via the three.js sample assets.
+          </p>
         </div>
       </footer>
     </div>
