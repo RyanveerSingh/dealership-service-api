@@ -7,6 +7,13 @@ server:
   # never reaches the app and the deploy is killed as unhealthy.
   port: ${PORT:8080}
   shutdown: graceful
+  tomcat:
+    threads:
+      # Tomcat's default ceiling is 200 threads. Each one reserves a stack, and
+      # on a 512 MB container that is memory spent on concurrency this app will
+      # never see. 40 is far more than a demo needs and leaves room for the heap.
+      max: ${TOMCAT_MAX_THREADS:40}
+      min-spare: 4
 
 spring:
   application:
@@ -28,7 +35,15 @@ spring:
     password: ${DB_PASSWORD:dmspass}
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
-      maximum-pool-size: ${DB_POOL_SIZE:10}
+      # Pooled connections cost memory here and a connection slot on the
+      # database. Aiven's free MySQL allows only a small number of concurrent
+      # connections, so a large pool risks exhausting the server's limit while
+      # also wasting container memory. Five is ample for this workload.
+      maximum-pool-size: ${DB_POOL_SIZE:5}
+      minimum-idle: 1
+      # Hand idle connections back rather than holding them open all day.
+      idle-timeout: 300000
+      max-lifetime: 900000
 
   jpa:
     hibernate:

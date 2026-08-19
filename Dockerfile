@@ -73,10 +73,28 @@ EXPOSE 8080
 # clock consistent for log timestamps.
 ENV TZ=UTC
 
-# MaxRAMPercentage rather than a fixed -Xmx: the JVM then sizes the heap from
-# whatever memory limit the container is actually given, so the same image
-# behaves correctly on a 512 MB task and on a 4 GB one.
-ENV JAVA_OPTS="-XX:MaxRAMPercentage=75.0 -XX:+UseContainerSupport"
+# Tuned for a 512 MB container, which is what the free tiers give you.
+#
+# The heap is only part of what a JVM occupies. Metaspace, the code cache,
+# thread stacks and the GC's own native structures all live outside it, and on
+# Spring Boot they add up to roughly 150-200 MB. At MaxRAMPercentage=75 the heap
+# alone took 384 MB of 512 MB, leaving nowhere near enough for the rest - so the
+# kernel OOM-killed the container. Each flag below buys back a piece of that:
+#
+#   MaxRAMPercentage=50   256 MB heap, leaving real headroom for non-heap
+#   UseSerialGC           G1 reserves tens of MB of native memory for region
+#                         tables and remembered sets, which is wasted on one
+#                         small container with low concurrency
+#   MaxMetaspaceSize      caps class metadata instead of letting it grow until
+#                         the container dies
+#   ReservedCodeCacheSize this app JITs a small amount of code; 64 MB is ample
+#   Xss512k               200 Tomcat threads at the 1 MB default stack is a lot
+#                         of memory reserved for stacks that stay nearly empty
+#   ExitOnOutOfMemoryError fail fast and let the platform restart cleanly,
+#                         rather than limping on in a degraded state
+ENV JAVA_OPTS="-XX:MaxRAMPercentage=50.0 -XX:+UseContainerSupport \
+-XX:+UseSerialGC -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=64m \
+-Xss512k -XX:+ExitOnOutOfMemoryError"
 
 # Compose and orchestrators use this to decide when the app is ready to serve.
 # Shell form, not exec form, so ${PORT} actually expands - PaaS platforms assign
