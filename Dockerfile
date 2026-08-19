@@ -92,8 +92,37 @@ ENV TZ=UTC
 #                         of memory reserved for stacks that stay nearly empty
 #   ExitOnOutOfMemoryError fail fast and let the platform restart cleanly,
 #                         rather than limping on in a degraded state
-ENV JAVA_OPTS="-XX:MaxRAMPercentage=50.0 -XX:+UseContainerSupport \
--XX:+UseSerialGC -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=64m \
+# Absolute sizes, not percentages.
+#
+# MaxRAMPercentage only works if the JVM can read a container memory limit.
+# Locally, `docker run --memory=512m` sets one and the JVM sized a 256 MB heap
+# correctly. A platform that enforces its quota outside the container - killing
+# the process when it exceeds the plan - may expose no such limit, and the JVM
+# then sizes the heap from the HOST's RAM, which is tens of gigabytes. The heap
+# grows happily until the platform kills it, which is why this passed a local
+# 512 MB test and still died in production.
+#
+# Stating every number absolutely removes the detection step entirely, so the
+# footprint is identical wherever it runs.
+#
+# The sizes below come from measurement, not estimation. A first attempt gave
+# metaspace 96 MB and died with OutOfMemoryError: Metaspace after ~1200
+# requests: Spring, Hibernate and Security generate CGLIB and entity proxies
+# steadily, so class metadata keeps growing long after startup looks settled.
+# Heap was never the constraint - total usage sat at 321 MB with 224 MB of heap
+# available - so budget moves from heap to metaspace.
+#
+#   Xmx192m                heap; measured steady state is well under this
+#   MaxMetaspaceSize 192m  class metadata, the thing that actually ran out
+#   ReservedCodeCache 48m  JIT output
+#   MaxDirectMemory 24m    NIO buffers, off-heap and otherwise unbounded
+#   Xss512k x 40 threads   ~20 MB of stacks
+#
+# No HeapDumpOnOutOfMemoryError: it wrote a 75 MB dump into /tmp, which is
+# memory-backed in this image, so the diagnostic made the exhaustion worse at
+# precisely the wrong moment.
+ENV JAVA_OPTS="-Xms96m -Xmx192m -XX:+UseSerialGC \
+-XX:MaxMetaspaceSize=192m -XX:ReservedCodeCacheSize=48m -XX:MaxDirectMemorySize=24m \
 -Xss512k -XX:+ExitOnOutOfMemoryError"
 
 # Compose and orchestrators use this to decide when the app is ready to serve.
