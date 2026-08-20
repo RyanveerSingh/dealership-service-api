@@ -1,10 +1,12 @@
 package com.dms.service.service;
 
 import com.dms.service.domain.Part;
+import com.dms.service.domain.Role;
 import com.dms.service.exception.ResourceNotFoundException;
 import com.dms.service.repository.CustomerRepository;
 import com.dms.service.repository.PartRepository;
 import com.dms.service.repository.ServiceBayRepository;
+import com.dms.service.repository.UserRepository;
 import com.dms.service.repository.VehicleRepository;
 import com.dms.service.web.dto.CatalogDtos.*;
 import org.springframework.stereotype.Service;
@@ -23,15 +25,18 @@ public class CatalogService {
     private final PartRepository partRepository;
     private final VehicleRepository vehicleRepository;
     private final CustomerRepository customerRepository;
+    private final UserRepository userRepository;
 
     public CatalogService(ServiceBayRepository bayRepository,
                           PartRepository partRepository,
                           VehicleRepository vehicleRepository,
-                          CustomerRepository customerRepository) {
+                          CustomerRepository customerRepository,
+                          UserRepository userRepository) {
         this.bayRepository = bayRepository;
         this.partRepository = partRepository;
         this.vehicleRepository = vehicleRepository;
         this.customerRepository = customerRepository;
+        this.userRepository = userRepository;
     }
 
     @Transactional(readOnly = true)
@@ -55,6 +60,15 @@ public class CatalogService {
     @Transactional(readOnly = true)
     public List<VehicleResponse> vehicles() {
         return vehicleRepository.findAllWithCustomer().stream().map(VehicleResponse::from).toList();
+    }
+
+    /** Technicians only - the sole role a repair order may be assigned to. */
+    @Transactional(readOnly = true)
+    public List<StaffResponse> technicians() {
+        return userRepository.findByRole(Role.TECHNICIAN).stream()
+                .filter(com.dms.service.domain.User::isActive)
+                .map(StaffResponse::from)
+                .toList();
     }
 
     @Transactional(readOnly = true)

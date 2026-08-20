@@ -39,3 +39,9 @@ frontend/dist/
 # Built React bundle, produced by 'npm run build' or the Docker frontend stage.
 # Generated output does not belong in version control.
 src/main/resources/static/
+
+# Full-resolution photo originals, kept locally before the web-sized versions
+# were generated. Several megabytes each and never served - the optimised
+# copies in frontend/public/media are what the site actually uses.
+.originals/
+frontend/.originals/

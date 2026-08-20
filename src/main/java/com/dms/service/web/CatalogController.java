@@ -61,6 +61,12 @@ public class CatalogController {
         return catalogService.vehicles();
     }
 
+    @GetMapping("/technicians")
+    @Operation(summary = "List active technicians, for repair-order assignment")
+    public List<StaffResponse> technicians() {
+        return catalogService.technicians();
+    }
+
     @GetMapping("/customers")
     @Operation(summary = "List customers")
     public List<CustomerResponse> customers() {

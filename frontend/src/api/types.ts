@@ -94,6 +94,13 @@ export interface Vehicle {
   customerName: string
 }
 
+export interface Staff {
+  id: number
+  fullName: string
+  email: string
+  role: Role
+}
+
 export interface Customer {
   id: number
   fullName: string

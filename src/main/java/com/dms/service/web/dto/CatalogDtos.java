@@ -59,6 +59,13 @@ public final class CatalogDtos {
         }
     }
 
+    /** Staff, for assignment dropdowns. Deliberately omits the password hash. */
+    public record StaffResponse(Long id, String fullName, String email, String role) {
+        public static StaffResponse from(com.dms.service.domain.User u) {
+            return new StaffResponse(u.getId(), u.getFullName(), u.getEmail(), u.getRole().name());
+        }
+    }
+
     public record CustomerResponse(Long id, String fullName, String email, String phone) {
         public static CustomerResponse from(Customer c) {
             return new CustomerResponse(c.getId(),

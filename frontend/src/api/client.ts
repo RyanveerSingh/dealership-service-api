@@ -1,6 +1,6 @@
 import type {
   ApiErrorBody, Appointment, AppointmentStatus, Bay, Customer,
-  LineType, LoginResponse, Part, RepairOrder, RepairOrderStatus, Vehicle,
+  LineType, LoginResponse, Part, RepairOrder, RepairOrderStatus, Staff, Vehicle,
 } from './types'
 
 const TOKEN_KEY = 'dms.token'
@@ -117,6 +117,7 @@ export const api = {
     post<Part>(`/api/parts/${partId}/receive?quantity=${quantity}`),
   vehicles: () => get<Vehicle[]>('/api/vehicles'),
   customers: () => get<Customer[]>('/api/customers'),
+  technicians: () => get<Staff[]>('/api/technicians'),
 
   appointments: (status: AppointmentStatus) =>
     get<Appointment[]>(`/api/appointments?status=${status}`),
@@ -124,6 +125,13 @@ export const api = {
   book: (input: BookingInput) => post<Appointment>('/api/appointments', input),
   setAppointmentStatus: (id: number, target: AppointmentStatus) =>
     patch<Appointment>(`/api/appointments/${id}/status?target=${target}`),
+
+  /** PUT /schedule - moves an existing booking, re-running the overlap guard. */
+  reschedule: (id: number, input: BookingInput) =>
+    request<Appointment>('PUT', `/api/appointments/${id}/schedule`, input),
+
+  /** Soft cancel: sets status CANCELLED, which releases the slot. */
+  cancelAppointment: (id: number) => del<void>(`/api/appointments/${id}`),
 
   repairOrders: (status: RepairOrderStatus) =>
     get<RepairOrder[]>(`/api/repair-orders?status=${status}`),
@@ -144,6 +152,9 @@ export const api = {
     del<RepairOrder>(`/api/repair-orders/${roId}/line-items/${lineId}`),
   setRepairOrderStatus: (id: number, target: RepairOrderStatus) =>
     patch<RepairOrder>(`/api/repair-orders/${id}/status?target=${target}`),
+
+  assignTechnician: (id: number, technicianId: number) =>
+    request<RepairOrder>('PUT', `/api/repair-orders/${id}/technician?technicianId=${technicianId}`),
 }
 
 /** Renders the server's DECIMAL strings as currency without going through float. */
